@@ -31,7 +31,7 @@ public sealed class CountyProduct
 
     public string? Note { get; set; }
 
-    /// <summary>The product in the CDMS Label Database whose Safety Data Sheets are shown, once matched.</summary>
+    /// <summary>The product in the CDMS Label Database whose labels and Safety Data Sheets are shown, once matched.</summary>
     public int? CdmsProductId { get; set; }
 
     [JsonIgnore]
@@ -125,12 +125,15 @@ public sealed class PplsLabelFile
     }
 }
 
-/// <summary>A CDMS product and its Safety Data Sheets as saved on the device.</summary>
+/// <summary>A CDMS product with its labels and Safety Data Sheets as saved on the device.</summary>
 public sealed class CachedSds
 {
     public DateTimeOffset FetchedAt { get; set; }
     public CdmsProduct? Product { get; set; }
     public List<CdmsDocument> Sheets { get; set; } = [];
+
+    /// <summary>Empty in lists saved before v0.2.0, until CDMS is next reached.</summary>
+    public List<CdmsDocument> Labels { get; set; } = [];
 }
 
 /// <summary>PPLS details as saved on the device, with the time they were fetched.</summary>

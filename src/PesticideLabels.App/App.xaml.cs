@@ -24,6 +24,12 @@ public partial class App : Application
         // Shown at every launch, and again the first time the app is brought back on a new day,
         // because tablets are often left running for days.
         root.Loaded += async (_, _) => await ShowPaperReminderAsync(root);
+        if (Features.RemovesUnusedDocuments)
+        {
+            // Tablets are rarely restarted, so this also runs each time the app is brought back.
+            _ = AppServices.RemoveUnusedDocumentsAsync();
+            window.Resumed += (_, _) => _ = AppServices.RemoveUnusedDocumentsAsync();
+        }
         window.Resumed += async (_, _) =>
         {
             if (_reminderAcknowledged is { } when && when.Date != DateTime.Now.Date)

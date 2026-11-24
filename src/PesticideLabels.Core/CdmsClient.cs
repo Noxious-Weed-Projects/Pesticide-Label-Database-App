@@ -31,6 +31,20 @@ public sealed class CdmsDocument
     [JsonIgnore]
     public bool IsSafetyDataSheet =>
         string.Equals(DocType?.Trim(), "SDS", StringComparison.OrdinalIgnoreCase) && CdmsClient.IsValidFileName(FileName);
+
+    /// <summary>
+    /// Anything that is not a Safety Data Sheet is label material: the specimen label, or a
+    /// supplemental document such as a 24(c) registration or a 2(ee) recommendation.
+    /// </summary>
+    [JsonIgnore]
+    public bool IsLabel =>
+        !string.Equals(DocType?.Trim(), "SDS", StringComparison.OrdinalIgnoreCase) && CdmsClient.IsValidFileName(FileName);
+
+    /// <summary>The product's own label, as opposed to a supplemental document.</summary>
+    [JsonIgnore]
+    public bool IsMainLabel =>
+        IsLabel && DocType?.Trim() is { } type
+        && (type.StartsWith("Specimen", StringComparison.OrdinalIgnoreCase) || type.Equals("Label", StringComparison.OrdinalIgnoreCase));
 }
 
 public sealed class CdmsList<T>
@@ -40,7 +54,7 @@ public sealed class CdmsList<T>
 
 /// <summary>
 /// Client for the CDMS Label Database (https://www.cdms.net/labelssds/home/), used for
-/// Safety Data Sheets. It calls the same addresses the CDMS web page calls.
+/// Safety Data Sheets and for the manufacturers' labels. It calls the same addresses the CDMS web page calls.
 /// </summary>
 public sealed partial class CdmsClient(HttpClient http)
 {

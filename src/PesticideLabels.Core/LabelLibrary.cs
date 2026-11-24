@@ -6,8 +6,8 @@ namespace PesticideLabels.Core;
 public sealed record ProductLookup(PplsProduct? Product, bool FromSavedCopy, DateTimeOffset? FetchedAt, string? Error);
 
 /// <summary>
-/// Result of looking for a product's Safety Data Sheets on CDMS. <see cref="Match"/> is the CDMS
-/// product the sheets belong to. When it is null, <see cref="Candidates"/> lists the CDMS products
+/// Result of looking for a product on CDMS. <see cref="Match"/> is the CDMS product the
+/// <see cref="Sheets"/> (Safety Data Sheets) and <see cref="Labels"/> belong to. When it is null, <see cref="Candidates"/> lists the CDMS products
 /// with a similar name for staff to choose from.
 /// </summary>
 public sealed record SdsLookup(
@@ -16,7 +16,14 @@ public sealed record SdsLookup(
     IReadOnlyList<CdmsProduct> Candidates,
     bool FromSavedCopy,
     DateTimeOffset? FetchedAt,
-    string? Error);
+    string? Error)
+{
+    /// <summary>The manufacturer's labels and supplemental label documents, in CDMS's order.</summary>
+    public IReadOnlyList<CdmsDocument> Labels { get; init; } = [];
+}
+
+/// <summary>What <see cref="LabelLibrary.RemoveUnusedDocuments"/> deleted.</summary>
+public sealed record CleanupSummary(int Removed, long BytesFreed);
 
 public sealed record DownloadProgress(int Done, int Total, string Current);
 
@@ -24,7 +31,7 @@ public sealed record DownloadSummary(int Saved, int AlreadySaved, IReadOnlyList<
 
 /// <summary>
 /// The county product list plus everything saved on the device for offline use:
-/// product details from PPLS and the label PDFs that have been opened or downloaded.
+/// product details from PPLS, document lists from CDMS, and the PDFs that have been opened or downloaded.
 /// </summary>
 public sealed class LabelLibrary
 {
@@ -173,7 +180,10 @@ public sealed class LabelLibrary
     private async Task<string> EnsurePdfAsync(string path, Uri uri, string notPdfMessage, CancellationToken ct)
     {
         if (File.Exists(path))
+        {
+            MarkUsed(path);
             return path;
+        }
 
         var temp = path + ".part";
         try
@@ -232,6 +242,8 @@ public sealed class LabelLibrary
                 }
                 else if (IsLabelSaved(newest.FileName))
                 {
+                    // Asking for the download counts as use, so the label is kept for another week.
+                    MarkUsed(LabelPath(newest.FileName));
                     already++;
                 }
                 else
@@ -252,12 +264,67 @@ public sealed class LabelLibrary
         return new DownloadSummary(saved, already, failed);
     }
 
-    // ---- Safety Data Sheets (CDMS) -------------------------------------------------------
+    // ---- Removing documents nobody has opened ---------------------------------------------
+
+    /// <summary>How long a saved document is kept on a tablet or phone after it was last opened.</summary>
+    public static readonly TimeSpan UnusedDocumentLifetime = TimeSpan.FromDays(7);
+
+    /// <summary>A saved PDF's modified time is the last time it was downloaded or opened.</summary>
+    private static void MarkUsed(string path)
+    {
+        try
+        {
+            File.SetLastWriteTimeUtc(path, DateTime.UtcNow);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // The document still opens; at worst it is removed early and downloaded again.
+        }
+    }
+
+    /// <summary>
+    /// Deletes the saved labels and Safety Data Sheets that were last downloaded or opened more
+    /// than <paramref name="unusedFor"/> ago. The product list, the EPA details and the CDMS
+    /// document lists are kept, so a removed document only needs a connection to come back.
+    /// </summary>
+    public CleanupSummary RemoveUnusedDocuments(TimeSpan unusedFor, DateTime? nowUtc = null)
+    {
+        var cutoff = (nowUtc ?? DateTime.UtcNow) - unusedFor;
+        var removed = 0;
+        long freed = 0;
+        foreach (var folder in (string[])[LabelsDir, SdsDir])
+        {
+            foreach (var file in Directory.EnumerateFiles(folder))
+            {
+                try
+                {
+                    var info = new FileInfo(file);
+                    if (info.LastWriteTimeUtc >= cutoff)
+                        continue;
+                    var size = info.Length;
+                    info.Delete();
+                    // Anything else this old is a download that was cut off.
+                    if (info.Extension.Equals(".pdf", StringComparison.OrdinalIgnoreCase))
+                    {
+                        removed++;
+                        freed += size;
+                    }
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    // In use or already gone; it is looked at again next time.
+                }
+            }
+        }
+        return new CleanupSummary(removed, freed);
+    }
+
+    // ---- Labels and Safety Data Sheets from CDMS -----------------------------------------
 
     public const string Cdms = "CDMS";
 
     /// <summary>
-    /// Finds the product's Safety Data Sheets on CDMS and saves the list. A product already
+    /// Finds the product's labels and Safety Data Sheets on CDMS and saves the list. A product already
     /// matched (<see cref="CountyProduct.CdmsProductId"/>) is looked up directly. Otherwise CDMS is
     /// searched by name: one US product with the same EPA Reg. No. is taken as the match, and
     /// anything less certain is returned as candidates for staff to choose from.
@@ -292,23 +359,27 @@ public sealed class LabelLibrary
                 FetchedAt = DateTimeOffset.Now,
                 Product = match ?? new CdmsProduct { Id = id },
                 Sheets = [.. documents.Where(d => d.IsSafetyDataSheet)],
+                Labels = [.. documents.Where(d => d.IsLabel)],
             };
             await WriteSdsAsync(file, cached, ct).ConfigureAwait(false);
-            return new SdsLookup(cached.Product, cached.Sheets, [], false, cached.FetchedAt, null);
+            return new SdsLookup(cached.Product, cached.Sheets, [], false, cached.FetchedAt, null) { Labels = cached.Labels };
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or IOException && !ct.IsCancellationRequested)
         {
             var saved = product.CdmsProductId is { } id ? await ReadSavedSdsAsync(SdsListFile(id)).ConfigureAwait(false) : null;
-            return new SdsLookup(saved?.Product, saved?.Sheets ?? [], [], saved is not null, saved?.FetchedAt, Describe(ex, Cdms));
+            return new SdsLookup(saved?.Product, saved?.Sheets ?? [], [], saved is not null, saved?.FetchedAt, Describe(ex, Cdms))
+            {
+                Labels = saved?.Labels ?? [],
+            };
         }
     }
 
-    /// <summary>The Safety Data Sheet list saved on this device for a matched product, without contacting CDMS.</summary>
+    /// <summary>The label and Safety Data Sheet list saved on this device for a matched product, without contacting CDMS.</summary>
     public async Task<SdsLookup?> GetSavedSdsAsync(CountyProduct product)
     {
         if (product.CdmsProductId is not { } id || await ReadSavedSdsAsync(SdsListFile(id)).ConfigureAwait(false) is not { } saved)
             return null;
-        return new SdsLookup(saved.Product, saved.Sheets, [], true, saved.FetchedAt, null);
+        return new SdsLookup(saved.Product, saved.Sheets, [], true, saved.FetchedAt, null) { Labels = saved.Labels };
     }
 
     /// <summary>
@@ -357,9 +428,12 @@ public sealed class LabelLibrary
 
     public bool IsSdsSaved(string fileName) => CdmsClient.IsValidFileName(fileName) && File.Exists(SdsPath(fileName));
 
-    /// <summary>Returns the path of the saved Safety Data Sheet, downloading it from CDMS first if needed.</summary>
+    /// <summary>
+    /// Returns the path of the saved CDMS document (a Safety Data Sheet or a label),
+    /// downloading it from CDMS first if needed.
+    /// </summary>
     public Task<string> EnsureSdsAsync(string fileName, CancellationToken ct = default) =>
-        EnsurePdfAsync(SdsPath(fileName), CdmsClient.DocumentUri(fileName), "CDMS returned something that is not a PDF for this Safety Data Sheet.", ct);
+        EnsurePdfAsync(SdsPath(fileName), CdmsClient.DocumentUri(fileName), "CDMS returned something that is not a PDF for this document.", ct);
 
     /// <summary>A plain-language reason for a failed request to <paramref name="source"/> (EPA or CDMS).</summary>
     public static string Describe(Exception ex, string source = "EPA") => ex switch

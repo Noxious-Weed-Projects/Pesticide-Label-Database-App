@@ -72,6 +72,8 @@ public sealed class ProductsPage : ContentPage
         var needNumber = _products.Count(p => p.Source == LabelSource.Ppls && !p.HasRegNo);
         var noLabel = _products.Count(p => p.Source == LabelSource.NoEpaLabel);
         _status.Text = $"{_products.Count} products · {withNumber} with EPA labels · {needNumber} need a registration number · {noLabel} with no EPA label";
+        if (Features.RemovesUnusedDocuments)
+            _status.Text += "\n" + PaperCopy.Removal;
     }
 
     private void ApplyFilter()
@@ -109,6 +111,8 @@ public sealed class ProductsPage : ContentPage
             var message = $"{summary.Saved} label(s) downloaded, {summary.AlreadySaved} already on this device.";
             if (summary.Failed.Count > 0)
                 message += $"\n\n{summary.Failed.Count} could not be downloaded:\n• " + string.Join("\n• ", summary.Failed);
+            if (Features.RemovesUnusedDocuments)
+                message += "\n\n" + PaperCopy.Removal;
             message += "\n\n" + PaperCopy.Short;
             await DisplayAlertAsync("Download finished", message, "OK");
         }
