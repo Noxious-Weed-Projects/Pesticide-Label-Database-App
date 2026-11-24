@@ -48,14 +48,66 @@ public sealed class CoreTests : IDisposable
     public void Dispose() => Directory.Delete(_dir, recursive: true);
 
     [Fact]
-    public void Seed_list_has_the_33_county_products_with_unique_ids()
+    public void Seed_list_has_the_34_county_products_with_unique_ids()
     {
         var products = SeedProducts.Create();
-        Assert.Equal(33, products.Count);
-        Assert.Equal(33, products.Select(p => p.Id).Distinct().Count());
+        Assert.Equal(34, products.Count);
+        Assert.Equal(34, products.Select(p => p.Id).Distinct().Count());
         Assert.All(products.Where(p => p.EpaRegNo is not null), p => Assert.True(PplsClient.TryNormalizeRegNo(p.EpaRegNo, out _), p.Name));
         Assert.All(products, p => Assert.False(p.Confirmed));
         Assert.Equal(9, products.Count(p => p.Source == LabelSource.NoEpaLabel));
+    }
+
+    [Theory]
+    [InlineData("Alligare 2,4-D", "81927-38")]
+    [InlineData("AquaNeat", "228-365")]
+    [InlineData("Diablo", "228-379")]
+    [InlineData("Drexel Diuron 4L", "19713-36")]
+    [InlineData("Loveland MAD DOG", "34704-889")]
+    [InlineData("Loveland Rifle", "34704-861")]
+    [InlineData("Cornbelt 4 Lb. Amine", "11773-2")]
+    public void Seed_list_has_the_numbers_from_the_county_list(string name, string? regNo) =>
+        Assert.Equal(regNo, SeedProducts.Create().Single(p => p.Name == name).EpaRegNo);
+
+    [Fact]
+    public async Task A_list_saved_by_an_earlier_version_gains_the_new_product_and_numbers()
+    {
+        // What v0.2.0 would have saved: no Cornbelt, and no numbers for these products.
+        var old = SeedProducts.Create();
+        old.RemoveAll(p => p.Name == "Cornbelt 4 Lb. Amine");
+        foreach (var name in new[] { "Alligare 2,4-D", "AquaNeat", "Drexel Diuron 4L", "Loveland MAD DOG", "Loveland Rifle" })
+            old.Single(p => p.Name == name).EpaRegNo = null;
+        // Staff edits made on the device must survive.
+        old.Single(p => p.Name == "Loveland MAD DOG").EpaRegNo = "34704-890";
+        old.Single(p => p.Name == "Corteva Milestone").Confirmed = true;
+        await _library.SaveProductsAsync(old);
+
+        var loaded = await _library.LoadProductsAsync();
+
+        Assert.Equal(34, loaded.Count);
+        Assert.Equal("11773-2", loaded.Single(p => p.Name == "Cornbelt 4 Lb. Amine").EpaRegNo);
+        Assert.Equal("81927-38", loaded.Single(p => p.Name == "Alligare 2,4-D").EpaRegNo);
+        Assert.Equal("19713-36", loaded.Single(p => p.Name == "Drexel Diuron 4L").EpaRegNo);
+        Assert.Equal("34704-861", loaded.Single(p => p.Name == "Loveland Rifle").EpaRegNo);
+        Assert.Equal("34704-890", loaded.Single(p => p.Name == "Loveland MAD DOG").EpaRegNo);
+        Assert.True(loaded.Single(p => p.Name == "Corteva Milestone").Confirmed);
+        Assert.False(SeedProducts.ApplyListUpdates(loaded));
+    }
+
+    [Fact]
+    public async Task A_list_saved_by_v0_2_1_gains_the_Cornbelt_number()
+    {
+        // v0.2.1 had Cornbelt on the list with no number.
+        var old = SeedProducts.Create();
+        old.Single(p => p.Name == "Cornbelt 4 Lb. Amine").EpaRegNo = null;
+        await _library.SaveProductsAsync(old);
+
+        var loaded = await _library.LoadProductsAsync();
+
+        Assert.Equal(34, loaded.Count);
+        var cornbelt = loaded.Single(p => p.Name == "Cornbelt 4 Lb. Amine");
+        Assert.Equal("11773-2", cornbelt.EpaRegNo);
+        Assert.False(cornbelt.Confirmed);
     }
 
     [Theory]
@@ -407,13 +459,13 @@ public sealed class CoreTests : IDisposable
         var saved = reloaded.Single(p => p.Name == "Loveland Rifle");
         Assert.Equal("34704-861", saved.EpaRegNo);
         Assert.True(saved.Confirmed);
-        Assert.Equal(33, reloaded.Count);
+        Assert.Equal(34, reloaded.Count);
     }
 
     [Fact]
     public async Task A_damaged_product_file_falls_back_to_the_built_in_list()
     {
         await File.WriteAllTextAsync(Path.Combine(_dir, "products.json"), "{ not json");
-        Assert.Equal(33, (await _library.LoadProductsAsync()).Count);
+        Assert.Equal(34, (await _library.LoadProductsAsync()).Count);
     }
 }
