@@ -156,7 +156,7 @@ public sealed class EditProductPage : ContentPage
                     "An EPA Reg. No. is two or three groups of digits joined by dashes, for example 62719-519 or 66222-141-81927.", "OK");
                 return;
             }
-            // The Safety Data Sheet was matched to the old number, so it has to be matched again.
+            // The CDMS product was matched to the old number, so it has to be matched again.
             if (!string.Equals(product.EpaRegNo, regNo, StringComparison.Ordinal))
                 product.CdmsProductId = null;
             product.Source = LabelSource.Ppls;

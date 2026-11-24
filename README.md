@@ -4,7 +4,7 @@ A .NET MAUI app for Windows PCs and Android tablets that shows the EPA labels fo
 
 Labels come from EPA's [Pesticide Product Label System (PPLS)](https://www.epa.gov/pesticide-labels/pesticide-product-label-system-ppls-application-program-interface-api) through its public API. No account or key is needed.
 
-On Windows the app also shows Safety Data Sheets from the [CDMS Label Database](https://www.cdms.net/labelssds/home/).
+The app also shows each product's Safety Data Sheet and the manufacturer's label from the [CDMS Label Database](https://www.cdms.net/labelssds/home/). That is where labels for products EPA's API does not have (adjuvants, surfactants, dyes) come from.
 
 > **The app does not replace paper labels.** It tells staff so at every launch, on every screen and whenever something fails. The label on the container is the one to follow; PPLS holds the labels EPA accepted, which may be a different version.
 
@@ -17,18 +17,35 @@ On Windows the app also shows Safety Data Sheets from the [CDMS Label Database](
 - Lets staff enter or correct a product's EPA Reg. No., search PPLS by name, and mark the number as checked against the container.
 - Marks products that have no EPA label (adjuvants, surfactants, dyes) so staff know to use the paper label and SDS.
 
-## Safety Data Sheets (Windows, since v0.1.1)
+## What v0.2.0 adds
 
-Each product page on Windows has a **Safety Data Sheet** section below the labels.
+- Safety Data Sheets from CDMS on Android as well as Windows.
+- The manufacturer's label from CDMS on both, including for products EPA's API has no label for.
+- On Android, saved labels and Safety Data Sheets that have not been opened for seven days are removed to save storage.
 
-- The app searches CDMS by product name. If exactly one US product there has the same EPA Reg. No., its sheets are shown straight away.
-- Otherwise the app lists the CDMS products with a similar name and staff choose the one on the container. This is how products with no EPA label (adjuvants, surfactants, dyes) get a sheet. The choice is remembered and can be changed.
-- An opened sheet is saved on the PC and opens without a connection afterwards. **Download all labels for offline use** does not fetch Safety Data Sheets.
-- CDMS only has products whose manufacturer posts them there. When a product is missing, the app says so and staff use the paper SDS.
+## Labels and Safety Data Sheets from CDMS
+
+Each product page has a **Label and Safety Data Sheet from CDMS** section below the EPA labels, on Windows and Android.
+
+- The app searches CDMS by product name. If exactly one US product there has the same EPA Reg. No., its documents are shown straight away.
+- Otherwise the app lists the CDMS products with a similar name and staff choose the one on the container. This is how products with no EPA label (adjuvants, surfactants, dyes) get a label and a sheet. The choice is remembered and can be changed.
+- **Manufacturer's label** lists the product's specimen label. Supplemental documents (24(c) registrations, 2(ee) recommendations and the like) are behind **Show supplemental label documents**; most of them are for other states.
+- **Safety Data Sheet** lists the product's sheets.
+- An opened document is saved on the device and opens without a connection afterwards. **Download all labels for offline use** fetches EPA labels only, not CDMS documents.
+- CDMS only has products whose manufacturer posts them there. When a product is missing, the app says so and staff use the paper label and SDS.
+
+A CDMS label is the manufacturer's specimen label, which can differ from both the label EPA accepted and the one on the container. The label on the container is the one to follow.
 
 CDMS has no published API. The app calls the same addresses the CDMS web page calls (`Home/ProductList`, `Home/DocumentList` and the PDFs under `ldat/`), so a redesign of that site can break this feature until the app is updated. Check CDMS's terms of use before distributing the app outside the department.
 
-The Android version does not have this section yet.
+## Storage on tablets and phones (Android, since v0.2.0)
+
+To save storage, the Android app deletes a saved label or Safety Data Sheet once seven days have passed since it was last downloaded or opened. It checks each time the app is started or brought back to the screen.
+
+- Opening a document, or pressing **Download all labels for offline use**, keeps it for another seven days.
+- The product list, EPA Reg. Nos., product details and CDMS choices are never removed.
+- A removed document shows "(needs internet)" and is downloaded again when opened. **Without a connection it cannot be opened**, so before a week in the field press **Download all labels for offline use** while connected, and keep the paper copies.
+- The Windows app does not remove anything.
 
 ## Before staff rely on it
 
@@ -55,12 +72,12 @@ Edits are stored on each device separately; the app does not sync between device
 
 Packages are written to `artifacts/` (not kept in git).
 
-**Windows** — `RushCountyPesticideLabels-0.1.1-win-x64.msix` is signed with a self-signed certificate, so each PC must trust that certificate once before the package will install:
+**Windows** — `RushCountyPesticideLabels-0.2.0-win-x64.msix` is signed with a self-signed certificate, so each PC must trust that certificate once before the package will install:
 
 1. As an administrator, import `RushCountyPesticideLabels.cer` into **Local Machine → Trusted People**.
 2. Double-click the `.msix` and choose **Install**. On a PC that already has an earlier version, this updates it and keeps the saved labels and edits.
 
-**Android** — copy `RushCountyPesticideLabels-0.1.0-android.apk` to the tablet, open it, and allow installing from that source. It supports Android 7 and later on 64-bit ARM and x86 tablets.
+**Android** — copy `RushCountyPesticideLabels-0.2.0-android.apk` to the tablet or phone, open it, and allow installing from that source. On a device that already has an earlier version, this updates it and keeps the saved labels and edits. It supports Android 7 and later on 64-bit ARM and x86 tablets.
 
 ## Build
 
@@ -90,6 +107,6 @@ Keep `signing/` backed up and out of git. Updates to the Android app must be sig
 
 ## Layout
 
-- `src/PesticideLabels.Core` — PPLS and CDMS clients, the county product list, and on-device storage of details and PDFs.
+- `src/PesticideLabels.Core` — PPLS and CDMS clients, the county product list, on-device storage of details and PDFs, and the removal of unused PDFs.
 - `src/PesticideLabels.App` — the MAUI app (Windows and Android).
 - `tests/PesticideLabels.Tests` — unit tests for the core library.

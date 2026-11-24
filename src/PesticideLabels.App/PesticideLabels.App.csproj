@@ -20,8 +20,8 @@
 		<ApplicationId>com.rushcountyks.pesticidelabels</ApplicationId>
 
 		<!-- Versions -->
-		<ApplicationDisplayVersion>0.1.1</ApplicationDisplayVersion>
-		<ApplicationVersion>2</ApplicationVersion>
+		<ApplicationDisplayVersion>0.2.0</ApplicationDisplayVersion>
+		<ApplicationVersion>3</ApplicationVersion>
 
 		<!-- Debug runs unpackaged from the build folder; Release builds the MSIX package. -->
 		<WindowsPackageType Condition="'$(Configuration)' == 'Debug'">None</WindowsPackageType>

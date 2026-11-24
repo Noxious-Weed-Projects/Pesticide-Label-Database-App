@@ -325,6 +325,75 @@ public sealed class CoreTests : IDisposable
     }
 
     [Fact]
+    public async Task Cdms_labels_are_listed_apart_from_safety_data_sheets_and_kept_for_offline()
+    {
+        const string documents = """
+            {"ProductId":7885,"Lst":[
+            {"FileName":"ld77N057.pdf","Description":"CD02-879-023","DocType":"Specimen Label","DocId":1,"LanguageCodes":["en"]},
+            {"FileName":"ld77N011.pdf","Description":"R879-008","DocType":"2(ee) Recommendation","DocId":2,"LanguageCodes":["en"]},
+            {"FileName":"mp77N004.pdf","Description":"SDS","DocType":"SDS","DocId":3,"LanguageCodes":["en"]},
+            {"FileName":"../evil.pdf","Description":"bad name","DocType":"Specimen Label","DocId":4,"LanguageCodes":[]}]}
+            """;
+        _handler.Json(CdmsClient.SearchUri("Milestone").AbsoluteUri, CdmsMilestoneSearch);
+        _handler.Json(CdmsClient.DocumentListUri(7885).AbsoluteUri, documents);
+        var product = new CountyProduct { Name = "Milestone", EpaRegNo = "62719-519" };
+
+        var live = await _library.FindSdsAsync(product);
+        product.CdmsProductId = live.Match!.Id;
+        _handler.Offline = true;
+        var offline = await _library.FindSdsAsync(product);
+
+        Assert.Equal(["ld77N057.pdf", "ld77N011.pdf"], live.Labels.Select(l => l.FileName));
+        Assert.Equal([true, false], live.Labels.Select(l => l.IsMainLabel));
+        Assert.Single(live.Sheets);
+        Assert.Equal(2, offline.Labels.Count);
+        Assert.Equal(2, (await _library.GetSavedSdsAsync(product))!.Labels.Count);
+    }
+
+    [Fact]
+    public async Task Documents_not_opened_for_a_week_are_removed_and_the_rest_are_kept()
+    {
+        _handler.Bytes(PplsClient.LabelPdfUri("old-label.pdf").AbsoluteUri, Pdf);
+        _handler.Bytes(PplsClient.LabelPdfUri("used-label.pdf").AbsoluteUri, Pdf);
+        _handler.Bytes(CdmsClient.DocumentUri("old-sds.pdf").AbsoluteUri, Pdf);
+        var oldLabel = await _library.EnsureLabelAsync("old-label.pdf");
+        var usedLabel = await _library.EnsureLabelAsync("used-label.pdf");
+        var oldSds = await _library.EnsureSdsAsync("old-sds.pdf");
+        var cutOff = oldLabel + ".part";
+        await File.WriteAllBytesAsync(cutOff, Pdf);
+        await _library.SaveProductsAsync(await _library.LoadProductsAsync());
+        var longAgo = DateTime.UtcNow.AddDays(-8);
+        foreach (var file in (string[])[oldLabel, usedLabel, oldSds, cutOff, Path.Combine(_dir, "products.json")])
+            File.SetLastWriteTimeUtc(file, longAgo);
+
+        // Opening a saved document counts as use.
+        await _library.EnsureLabelAsync("used-label.pdf");
+        var summary = _library.RemoveUnusedDocuments(LabelLibrary.UnusedDocumentLifetime);
+
+        Assert.Equal(new CleanupSummary(2, Pdf.Length * 2), summary);
+        Assert.False(_library.IsLabelSaved("old-label.pdf"));
+        Assert.False(_library.IsSdsSaved("old-sds.pdf"));
+        Assert.False(File.Exists(cutOff));
+        Assert.True(_library.IsLabelSaved("used-label.pdf"));
+        Assert.True(File.Exists(Path.Combine(_dir, "products.json")));
+        Assert.Equal(0, _library.RemoveUnusedDocuments(LabelLibrary.UnusedDocumentLifetime).Removed);
+    }
+
+    [Fact]
+    public async Task Download_all_keeps_an_already_saved_label_for_another_week()
+    {
+        _handler.Json(PplsClient.ProductUri("62719-519").AbsoluteUri, Milestone);
+        _handler.Bytes(PplsClient.LabelPdfUri("062719-00519-20210204.pdf").AbsoluteUri, Pdf);
+        List<CountyProduct> products = [new() { Name = "Milestone", EpaRegNo = "62719-519" }];
+        await _library.DownloadAllLatestAsync(products);
+        File.SetLastWriteTimeUtc(_library.LabelPath("062719-00519-20210204.pdf"), DateTime.UtcNow.AddDays(-8));
+
+        await _library.DownloadAllLatestAsync(products);
+
+        Assert.Equal(0, _library.RemoveUnusedDocuments(LabelLibrary.UnusedDocumentLifetime).Removed);
+    }
+
+    [Fact]
     public async Task Edits_to_the_product_list_survive_a_restart()
     {
         var products = await _library.LoadProductsAsync();

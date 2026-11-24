@@ -2,7 +2,7 @@ using PesticideLabels.Core;
 
 namespace PesticideLabels.App.Pages;
 
-/// <summary>One county product: its EPA details and the list of label PDFs.</summary>
+/// <summary>One county product: its EPA details and labels, and its label and Safety Data Sheet from CDMS.</summary>
 public sealed class ProductDetailPage : ContentPage
 {
     private const int LabelsShownAtFirst = 4;
@@ -14,6 +14,7 @@ public sealed class ProductDetailPage : ContentPage
     private readonly ActivityIndicator _sdsBusy = new() { IsVisible = false, HorizontalOptions = LayoutOptions.Start };
     private CountyProduct? _product;
     private bool _showAllLabels;
+    private bool _showSupplemental;
     private bool _opening;
     private int _loadVersion;
 
@@ -44,8 +45,8 @@ public sealed class ProductDetailPage : ContentPage
         }
         Title = _product.Name;
 
-        // The Safety Data Sheet comes from a different site, so it is looked up alongside the label.
-        var sds = Features.SafetyDataSheets ? LoadSdsAsync(version) : Task.CompletedTask;
+        // CDMS is a different site, so it is looked up alongside EPA.
+        var sds = LoadSdsAsync(version);
 
         if (!_product.HasRegNo)
         {
@@ -70,8 +71,7 @@ public sealed class ProductDetailPage : ContentPage
     private void Render(ProductLookup? lookup, string? working)
     {
         RenderLabels(lookup, working);
-        if (Features.SafetyDataSheets)
-            _body.Add(_sds);
+        _body.Add(_sds);
     }
 
     private void RenderLabels(ProductLookup? lookup, string? working)
@@ -83,7 +83,8 @@ public sealed class ProductDetailPage : ContentPage
 
         if (product.Source == LabelSource.NoEpaLabel)
         {
-            _body.Add(Notice("No EPA label for this product", product.Note ?? "Use the paper label and SDS from the supplier.", warning: true));
+            _body.Add(Notice("No EPA label for this product",
+                (product.Note ?? "Use the paper label and SDS from the supplier.") + " The manufacturer's label may be on CDMS, below.", warning: true));
             _body.Add(EditButton("This product does have an EPA Reg. No."));
             return;
         }
@@ -92,7 +93,7 @@ public sealed class ProductDetailPage : ContentPage
         {
             _body.Add(Notice("EPA registration number needed",
                 "Several EPA products match this name. Read the EPA Reg. No. from the container and enter it so the right label is shown. " +
-                "Until then, use your paper copy.", warning: true));
+                "Until then, use your paper copy. The manufacturer's label may be on CDMS, below.", warning: true));
             _body.Add(EditButton("Enter the EPA Reg. No."));
             return;
         }
@@ -147,7 +148,8 @@ public sealed class ProductDetailPage : ContentPage
         var labels = ppls.LabelsNewestFirst;
         if (labels.Count == 0)
         {
-            _body.Add(Notice("No label PDF on file", $"EPA lists no label PDF for this registration. {PaperCopy.OnFailure}", warning: true));
+            _body.Add(Notice("No label PDF on file",
+                $"EPA lists no label PDF for this registration. The manufacturer's label may be on CDMS, below. {PaperCopy.OnFailure}", warning: true));
             return;
         }
 
@@ -208,9 +210,9 @@ public sealed class ProductDetailPage : ContentPage
         }
     }
 
-    // ---- Safety Data Sheets (CDMS) -------------------------------------------------------
+    // ---- Labels and Safety Data Sheets from CDMS -----------------------------------------
 
-    private const string PaperSds = "Use the paper SDS from the supplier.";
+    private const string PaperSds = "Use the paper label and SDS from the supplier.";
     private const int CandidatesShown = 12;
 
     private async Task LoadSdsAsync(int version)
@@ -218,11 +220,11 @@ public sealed class ProductDetailPage : ContentPage
         var product = _product!;
         try
         {
-            RenderSds(await AppServices.Library.GetSavedSdsAsync(product), "Checking CDMS for the Safety Data Sheet…");
+            RenderSds(await AppServices.Library.GetSavedSdsAsync(product), "Checking CDMS for the label and Safety Data Sheet…");
             var live = await AppServices.Library.FindSdsAsync(product);
             if (version != _loadVersion)
                 return;
-            // A match made by EPA Reg. No. is remembered so the sheet list is there without a connection.
+            // A match made by EPA Reg. No. is remembered so the document list is there without a connection.
             if (live is { Match: { } match, Error: null } && product.CdmsProductId != match.Id)
                 await SaveSdsMatchAsync(match.Id);
             RenderSds(live, null);
@@ -246,11 +248,11 @@ public sealed class ProductDetailPage : ContentPage
     private void RenderSds(SdsLookup? lookup, string? working)
     {
         _sds.Children.Clear();
-        _sds.Add(new Label { Text = "Safety Data Sheet", FontSize = 20, FontFamily = "OpenSansSemibold" });
+        _sds.Add(new Label { Text = "Label and Safety Data Sheet from CDMS", FontSize = 20, FontFamily = "OpenSansSemibold" });
         _sds.Add(new Label
         {
-            Text = "From the CDMS Label Database (cdms.net), where manufacturers post their own sheets. " +
-                   "Check that the product name and manufacturer match your container.",
+            Text = "From the CDMS Label Database (cdms.net), where manufacturers post their own labels and sheets. " +
+                   "Check that the product name and manufacturer match your container. The label on the container is the one to follow.",
             TextColor = Palette.Muted,
             FontSize = 14,
         });
@@ -263,8 +265,8 @@ public sealed class ProductDetailPage : ContentPage
         {
             var text = lookup.Match is null
                 ? $"{error} {PaperSds}"
-                : $"{error} Showing the list saved on this device on {lookup.FetchedAt:MMMM d, yyyy}; a newer sheet may exist.";
-            _sds.Add(Notice("Could not get the Safety Data Sheet from CDMS", text, warning: false));
+                : $"{error} Showing the list saved on this device on {lookup.FetchedAt:MMMM d, yyyy}; newer documents may exist.";
+            _sds.Add(Notice("Could not get this product from CDMS", text, warning: false));
         }
 
         if (lookup.Match is { } match)
@@ -276,10 +278,44 @@ public sealed class ProductDetailPage : ContentPage
             _sds.Add(details);
             _sds.Add(_sdsBusy);
 
+            // The product's own label first; 24(c), 2(ee) and other supplemental documents on request.
+            var main = lookup.Labels.Where(l => l.IsMainLabel).ToList();
+            var supplemental = lookup.Labels.Where(l => !l.IsMainLabel).ToList();
+            if (main.Count == 0)
+                (main, supplemental) = (supplemental, main);
+
+            _sds.Add(SubHeading("Manufacturer's label"));
+            if (main.Count == 0 && lookup.Error is null)
+                _sds.Add(Notice("No label on CDMS", $"CDMS lists this product but has no label for it. {PaperCopy.OnFailure}", warning: true));
+            for (var i = 0; i < main.Count; i++)
+                _sds.Add(CdmsButton(main[i], "Label", filled: i == 0 && !_product!.HasRegNo));
+            if (supplemental.Count > 0 && !_showSupplemental)
+            {
+                var more = new Button
+                {
+                    Text = $"Show {supplemental.Count} supplemental label document(s)",
+                    HorizontalOptions = LayoutOptions.Start,
+                    BackgroundColor = Colors.Transparent,
+                    TextColor = Palette.Green,
+                };
+                more.Clicked += (_, _) =>
+                {
+                    _showSupplemental = true;
+                    RenderSds(lookup, working);
+                };
+                _sds.Add(more);
+            }
+            else
+            {
+                foreach (var document in supplemental)
+                    _sds.Add(CdmsButton(document, string.IsNullOrWhiteSpace(document.DocType) ? "Label document" : document.DocType.Trim(), filled: false));
+            }
+
+            _sds.Add(SubHeading("Safety Data Sheet"));
             if (lookup.Sheets.Count == 0 && lookup.Error is null)
                 _sds.Add(Notice("No Safety Data Sheet on CDMS", $"CDMS lists this product but has no Safety Data Sheet for it. {PaperSds}", warning: true));
             foreach (var sheet in lookup.Sheets)
-                _sds.Add(SdsButton(sheet));
+                _sds.Add(CdmsButton(sheet, "Safety Data Sheet", filled: false));
 
             var other = new Button { Text = "Not the product on your container? Choose another", HorizontalOptions = LayoutOptions.Start, BackgroundColor = Colors.Transparent, TextColor = Palette.Green };
             other.Clicked += async (_, _) => await ChooseAnotherSdsProductAsync();
@@ -358,27 +394,31 @@ public sealed class ProductDetailPage : ContentPage
         }
     }
 
-    private Button SdsButton(CdmsDocument sheet)
+    private static Label SubHeading(string text) =>
+        new() { Text = text, FontSize = 17, FontFamily = "OpenSansSemibold", Margin = new Thickness(0, 6, 0, 0) };
+
+    /// <summary>A button that opens one CDMS document; <paramref name="kind"/> says what it is.</summary>
+    private Button CdmsButton(CdmsDocument sheet, string kind, bool filled)
     {
         var languages = sheet.LanguageCodes.Count > 0 ? $" ({string.Join(", ", sheet.LanguageCodes)})" : "";
         var description = string.IsNullOrWhiteSpace(sheet.Description) ? sheet.FileName : sheet.Description.Trim();
         var saved = AppServices.Library.IsSdsSaved(sheet.FileName);
         var button = new Button
         {
-            Text = $"Safety Data Sheet{languages} — {description}" + (saved ? "   ✓ saved on this device" : "   (needs internet)"),
-            BackgroundColor = Colors.Transparent,
-            TextColor = Palette.Green,
+            Text = $"{kind}{languages} — {description}" + (saved ? "   ✓ saved on this device" : "   (needs internet)"),
+            BackgroundColor = filled ? Palette.Green : Colors.Transparent,
+            TextColor = filled ? Colors.White : Palette.Green,
             BorderColor = Palette.Green,
             BorderWidth = 1,
             FontSize = 16,
             Padding = new Thickness(14, 12),
             LineBreakMode = LineBreakMode.WordWrap,
         };
-        button.Clicked += async (_, _) => await OpenSdsAsync(sheet);
+        button.Clicked += async (_, _) => await OpenCdmsDocumentAsync(sheet, kind);
         return button;
     }
 
-    private async Task OpenSdsAsync(CdmsDocument sheet)
+    private async Task OpenCdmsDocumentAsync(CdmsDocument sheet, string kind)
     {
         if (_opening)
             return;
@@ -387,11 +427,11 @@ public sealed class ProductDetailPage : ContentPage
         try
         {
             var path = await AppServices.Library.EnsureSdsAsync(sheet.FileName);
-            await Navigation.PushAsync(new LabelViewerPage(path, $"{_product!.Name} — Safety Data Sheet"));
+            await Navigation.PushAsync(new LabelViewerPage(path, $"{_product!.Name} — {kind} (CDMS)"));
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or IOException or InvalidDataException)
         {
-            await DisplayAlertAsync("Could not open this Safety Data Sheet", $"{LabelLibrary.Describe(ex, LabelLibrary.Cdms)}\n\n{PaperSds}", "OK");
+            await DisplayAlertAsync("Could not open this document", $"{LabelLibrary.Describe(ex, LabelLibrary.Cdms)}\n\n{PaperSds}", "OK");
         }
         finally
         {
