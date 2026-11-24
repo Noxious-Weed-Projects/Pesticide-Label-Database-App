@@ -10,7 +10,7 @@ The app also shows each product's Safety Data Sheet and the manufacturer's label
 
 ## What v0.1 does
 
-- Lists the department's 33 products (from the county chemical list) with search.
+- Lists the department's products (from the county chemical list) with search.
 - For each EPA-registered product, shows the PPLS details (registrant, status, signal word, restricted-use flag, active ingredients) and the accepted label PDFs, newest first.
 - Opens a label inside the app. On Android the pages are drawn as images with pinch zoom; on Windows the built-in PDF viewer is used. **Open / print** hands the PDF to another app.
 - Saves every opened label on the device so it opens without a connection. **Download all labels for offline use** saves the newest label of every product in one go.
@@ -22,6 +22,14 @@ The app also shows each product's Safety Data Sheet and the manufacturer's label
 - Safety Data Sheets from CDMS on Android as well as Windows.
 - The manufacturer's label from CDMS on both, including for products EPA's API has no label for.
 - On Android, saved labels and Safety Data Sheets that have not been opened for seven days are removed to save storage.
+
+## What v0.2.1 changes
+
+- The product list follows the updated county chemical list: 34 products, with **Cornbelt 4 Lb. Amine** added.
+- EPA Reg. Nos. from the county list for Alligare 2,4-D (81927-38), AquaNeat (228-365), Drexel Diuron 4L (19713-36), Loveland MAD DOG (34704-889) and Loveland Rifle (34704-861).
+- A device that already has an earlier version gets the new product and these numbers when it is updated. Numbers staff entered or confirmed on the device are kept.
+
+The county list shows 19713-36 beside Diablo. EPA registers that number as Drexel Diuron 4L, the next product on the list, so the app puts it there and Diablo keeps 228-379. Check both against the containers.
 
 ## Labels and Safety Data Sheets from CDMS
 
@@ -49,12 +57,13 @@ To save storage, the Android app deletes a saved label or Safety Data Sheet once
 
 ## Before staff rely on it
 
-The county list has product names only. The EPA Reg. Nos. built into the app are name matches from PPLS and are shown as "not yet checked against the container" until someone confirms each one in the app.
+The county list gives an EPA number for a few products. The other EPA Reg. Nos. built into the app are name matches from PPLS. All are shown as "not yet checked against the container" until someone confirms each one in the app.
 
 | State in the app | Products |
 |---|---|
+| Number from the county list, unconfirmed (5) | Alligare 2,4-D, AquaNeat, Drexel Diuron 4L, Loveland MAD DOG, Loveland Rifle |
 | Number matched by name, unconfirmed (19) | De-Amine 4, Sharda Picloram 24% SL, Alligare 2,4-D LV 6, Diablo, Glyphosate 4 Plus, GLY Star Plus, High Noon, Imitator Aquatic, Makaze, Milestone, Mojave 70 EG, Imazuron, MSM 60, Panoramic 2SL, Picloram 22K, Triumph 22K, Tordon 22K, Piper EZ, Outrider |
-| Number needed from the container (5) | Alligare 2,4-D, AquaNeat, Drexel Diuron 4L, Loveland MAD DOG, Loveland Rifle |
+| Number needed from the container (1) | Cornbelt 4 Lb. Amine |
 | No EPA label found (9) | Bubble Blaster, Hot Mes, Liberate, Photo Blue Dye, Blue Wing, Surf-AC 910, Choice Weathermaster, LI 700, Reign |
 
 Edits are stored on each device separately; the app does not sync between devices yet.
@@ -72,12 +81,12 @@ Edits are stored on each device separately; the app does not sync between device
 
 Packages are written to `artifacts/` (not kept in git).
 
-**Windows** — `RushCountyPesticideLabels-0.2.0-win-x64.msix` is signed with a self-signed certificate, so each PC must trust that certificate once before the package will install:
+**Windows** — `RushCountyPesticideLabels-0.2.1-win-x64.msix` is signed with a self-signed certificate, so each PC must trust that certificate once before the package will install:
 
 1. As an administrator, import `RushCountyPesticideLabels.cer` into **Local Machine → Trusted People**.
 2. Double-click the `.msix` and choose **Install**. On a PC that already has an earlier version, this updates it and keeps the saved labels and edits.
 
-**Android** — copy `RushCountyPesticideLabels-0.2.0-android.apk` to the tablet or phone, open it, and allow installing from that source. On a device that already has an earlier version, this updates it and keeps the saved labels and edits. It supports Android 7 and later on 64-bit ARM and x86 tablets.
+**Android** — copy `RushCountyPesticideLabels-0.2.1-android.apk` to the tablet or phone, open it, and allow installing from that source. On a device that already has an earlier version, this updates it and keeps the saved labels and edits. It supports Android 7 and later on 64-bit ARM and x86 tablets.
 
 ## Build
 

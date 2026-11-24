@@ -74,7 +74,11 @@ public sealed class LabelLibrary
                     await using var stream = File.OpenRead(ProductsFile);
                     var saved = await JsonSerializer.DeserializeAsync(stream, CoreJson.Default.ListCountyProduct, ct).ConfigureAwait(false);
                     if (saved is { Count: > 0 })
+                    {
+                        // Saved by an earlier version, perhaps: add what the county list has gained since.
+                        SeedProducts.ApplyListUpdates(saved);
                         return saved;
+                    }
                 }
                 catch (JsonException)
                 {
