@@ -208,6 +208,122 @@ public sealed class CoreTests : IDisposable
         Assert.Equal(1, second.AlreadySaved);
     }
 
+    // ---- Safety Data Sheets (CDMS) ----
+
+    private const string CdmsMilestoneSearch = """
+        {"SiteUrl":"http://www.cdms.net/","LabelFolder":"ldat/","Lst":[
+        {"Id":8113,"Name":"Milestone® VM Specialty Herbicide ","ManId":525,"EPA":"62719-537","Manufacturer":"Corteva Agriscience United States","CommonName":"AMINOPYRALID","IsUs":true,"IsCanada":false},
+        {"Id":7885,"Name":"Milestone® Specialty Herbicide","ManId":525,"EPA":"62719-519","Manufacturer":"Corteva Agriscience United States","CommonName":"AMINOPYRALID","IsUs":true,"IsCanada":false}]}
+        """;
+
+    private const string CdmsMilestoneDocuments = """
+        {"ProductId":7885,"SiteUrl":"https://www.cdms.net/","LabelFolder":"ldat/","Lst":[
+        {"FileName":"ld77N057.pdf","Description":"CD02-879-023","DocType":"Specimen Label","DocId":138511,"LanguageCodes":["en"]},
+        {"FileName":"mp77N004.pdf","Description":"CD03-879-020 (issue date 6-29-22 version 1.0)","DocType":"SDS","DocId":140001,"LanguageCodes":["en"]},
+        {"FileName":"../evil.pdf","Description":"bad name","DocType":"SDS","DocId":1,"LanguageCodes":[]}]}
+        """;
+
+    [Fact]
+    public void Cdms_search_tries_the_name_without_the_manufacturer() =>
+        Assert.Equal(["Corteva Agriscience Piper EZ", "Agriscience Piper EZ", "Piper EZ", "PIPER"],
+            CdmsClient.SearchTerms(new CountyProduct { Name = "Corteva Agriscience Piper EZ", SearchHint = "PIPER" }));
+
+    [Fact]
+    public async Task Sds_is_matched_by_epa_number_and_only_safety_data_sheets_are_listed()
+    {
+        _handler.Json(CdmsClient.SearchUri("Milestone").AbsoluteUri, CdmsMilestoneSearch);
+        _handler.Json(CdmsClient.DocumentListUri(7885).AbsoluteUri, CdmsMilestoneDocuments);
+
+        var lookup = await _library.FindSdsAsync(new CountyProduct { Name = "Milestone", EpaRegNo = "62719-519" });
+
+        Assert.Null(lookup.Error);
+        Assert.Equal(7885, lookup.Match?.Id);
+        Assert.Equal("mp77N004.pdf", Assert.Single(lookup.Sheets).FileName);
+    }
+
+    [Fact]
+    public async Task Sds_without_a_matching_epa_number_offers_the_products_to_choose_from()
+    {
+        _handler.Json(CdmsClient.SearchUri("Milestone").AbsoluteUri, CdmsMilestoneSearch);
+
+        var lookup = await _library.FindSdsAsync(new CountyProduct { Name = "Milestone", EpaRegNo = "1-1" });
+
+        Assert.Null(lookup.Match);
+        Assert.Equal([8113, 7885], lookup.Candidates.Select(c => c.Id));
+        Assert.Empty(lookup.Sheets);
+    }
+
+    [Fact]
+    public async Task Sds_search_falls_back_to_the_name_without_the_manufacturer()
+    {
+        _handler.Json(CdmsClient.SearchUri("Corteva Milestone").AbsoluteUri, """{"Lst":[]}""");
+        _handler.Json(CdmsClient.SearchUri("Milestone").AbsoluteUri, CdmsMilestoneSearch);
+        _handler.Json(CdmsClient.DocumentListUri(7885).AbsoluteUri, CdmsMilestoneDocuments);
+
+        var lookup = await _library.FindSdsAsync(new CountyProduct { Name = "Corteva Milestone", EpaRegNo = "62719-519" });
+
+        Assert.Equal(7885, lookup.Match?.Id);
+    }
+
+    [Fact]
+    public async Task Sds_list_of_a_matched_product_is_reused_when_cdms_cannot_be_reached()
+    {
+        _handler.Json(CdmsClient.SearchUri("Milestone").AbsoluteUri, CdmsMilestoneSearch);
+        _handler.Json(CdmsClient.DocumentListUri(7885).AbsoluteUri, CdmsMilestoneDocuments);
+        var product = new CountyProduct { Name = "Milestone", EpaRegNo = "62719-519" };
+        product.CdmsProductId = (await _library.FindSdsAsync(product)).Match!.Id;
+
+        _handler.Offline = true;
+        var offline = await _library.FindSdsAsync(product);
+        var saved = await _library.GetSavedSdsAsync(product);
+
+        Assert.True(offline.FromSavedCopy);
+        Assert.Contains("CDMS", offline.Error);
+        Assert.Equal("Milestone® Specialty Herbicide", offline.Match?.Name);
+        Assert.Single(offline.Sheets);
+        Assert.Single(saved!.Sheets);
+    }
+
+    [Fact]
+    public async Task Sds_offline_with_no_match_reports_an_error()
+    {
+        _handler.Offline = true;
+        var lookup = await _library.FindSdsAsync(new CountyProduct { Name = "Milestone", EpaRegNo = "62719-519" });
+        Assert.Null(lookup.Match);
+        Assert.False(lookup.FromSavedCopy);
+        Assert.NotNull(lookup.Error);
+    }
+
+    [Fact]
+    public async Task A_product_chosen_by_hand_keeps_its_name_after_the_sheets_are_fetched()
+    {
+        _handler.Json(CdmsClient.DocumentListUri(7885).AbsoluteUri, CdmsMilestoneDocuments);
+        await _library.RememberSdsMatchAsync(new CdmsProduct { Id = 7885, Name = "Milestone® Specialty Herbicide", Manufacturer = "Corteva" });
+
+        var lookup = await _library.FindSdsAsync(new CountyProduct { Name = "Milestone", CdmsProductId = 7885 });
+
+        Assert.Equal("Milestone® Specialty Herbicide", lookup.Match?.Name);
+        Assert.Single(lookup.Sheets);
+        Assert.DoesNotContain(_handler.Requests, r => r.Contains("ProductList"));
+    }
+
+    [Fact]
+    public async Task Sds_pdf_is_downloaded_once_and_a_non_pdf_is_rejected()
+    {
+        _handler.Bytes(CdmsClient.DocumentUri("mp77N004.pdf").AbsoluteUri, Pdf);
+        _handler.Bytes(CdmsClient.DocumentUri("mpBAD.pdf").AbsoluteUri, Encoding.ASCII.GetBytes("<html>Sorry</html>"));
+
+        var path = await _library.EnsureSdsAsync("mp77N004.pdf");
+        await _library.EnsureSdsAsync("mp77N004.pdf");
+        await Assert.ThrowsAsync<InvalidDataException>(() => _library.EnsureSdsAsync("mpBAD.pdf"));
+
+        Assert.Equal(Pdf, await File.ReadAllBytesAsync(path));
+        Assert.True(_library.IsSdsSaved("mp77N004.pdf"));
+        Assert.False(_library.IsSdsSaved("mpBAD.pdf"));
+        Assert.Equal(2, _handler.Requests.Count);
+        Assert.Throws<ArgumentException>(() => _library.SdsPath("../evil.pdf"));
+    }
+
     [Fact]
     public async Task Edits_to_the_product_list_survive_a_restart()
     {

@@ -5,6 +5,19 @@ namespace PesticideLabels.Core;
 /// <summary>Result of looking up a product: live from EPA, or the copy saved on this device.</summary>
 public sealed record ProductLookup(PplsProduct? Product, bool FromSavedCopy, DateTimeOffset? FetchedAt, string? Error);
 
+/// <summary>
+/// Result of looking for a product's Safety Data Sheets on CDMS. <see cref="Match"/> is the CDMS
+/// product the sheets belong to. When it is null, <see cref="Candidates"/> lists the CDMS products
+/// with a similar name for staff to choose from.
+/// </summary>
+public sealed record SdsLookup(
+    CdmsProduct? Match,
+    IReadOnlyList<CdmsDocument> Sheets,
+    IReadOnlyList<CdmsProduct> Candidates,
+    bool FromSavedCopy,
+    DateTimeOffset? FetchedAt,
+    string? Error);
+
 public sealed record DownloadProgress(int Done, int Total, string Current);
 
 public sealed record DownloadSummary(int Saved, int AlreadySaved, IReadOnlyList<string> Failed);
@@ -17,6 +30,7 @@ public sealed class LabelLibrary
 {
     private readonly string _root;
     private readonly PplsClient _ppls;
+    private readonly CdmsClient _cdms;
     private readonly HttpClient _http;
     private readonly SemaphoreSlim _productsLock = new(1, 1);
 
@@ -24,14 +38,19 @@ public sealed class LabelLibrary
     {
         _root = rootDirectory;
         _ppls = ppls;
+        _cdms = new CdmsClient(http);
         _http = http;
         Directory.CreateDirectory(DetailsDir);
         Directory.CreateDirectory(LabelsDir);
+        Directory.CreateDirectory(CdmsDir);
+        Directory.CreateDirectory(SdsDir);
     }
 
     private string ProductsFile => Path.Combine(_root, "products.json");
     private string DetailsDir => Path.Combine(_root, "ppls");
     private string LabelsDir => Path.Combine(_root, "labels");
+    private string CdmsDir => Path.Combine(_root, "cdms");
+    private string SdsDir => Path.Combine(_root, "sds");
 
     // ---- County product list -------------------------------------------------------------
 
@@ -148,16 +167,18 @@ public sealed class LabelLibrary
         PplsClient.IsValidLabelFileName(fileName) && File.Exists(LabelPath(fileName));
 
     /// <summary>Returns the path of the saved PDF, downloading it from EPA first if needed.</summary>
-    public async Task<string> EnsureLabelAsync(string fileName, CancellationToken ct = default)
+    public Task<string> EnsureLabelAsync(string fileName, CancellationToken ct = default) =>
+        EnsurePdfAsync(LabelPath(fileName), PplsClient.LabelPdfUri(fileName), "EPA returned something that is not a PDF for this label.", ct);
+
+    private async Task<string> EnsurePdfAsync(string path, Uri uri, string notPdfMessage, CancellationToken ct)
     {
-        var path = LabelPath(fileName);
         if (File.Exists(path))
             return path;
 
         var temp = path + ".part";
         try
         {
-            using (var response = await _http.GetAsync(PplsClient.LabelPdfUri(fileName), HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false))
+            using (var response = await _http.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false))
             {
                 response.EnsureSuccessStatusCode();
                 await using var source = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
@@ -166,7 +187,7 @@ public sealed class LabelLibrary
             }
 
             if (!await LooksLikePdfAsync(temp, ct).ConfigureAwait(false))
-                throw new InvalidDataException("EPA returned something that is not a PDF for this label.");
+                throw new InvalidDataException(notPdfMessage);
 
             File.Move(temp, path, overwrite: true);
             return path;
@@ -231,12 +252,122 @@ public sealed class LabelLibrary
         return new DownloadSummary(saved, already, failed);
     }
 
-    public static string Describe(Exception ex) => ex switch
+    // ---- Safety Data Sheets (CDMS) -------------------------------------------------------
+
+    public const string Cdms = "CDMS";
+
+    /// <summary>
+    /// Finds the product's Safety Data Sheets on CDMS and saves the list. A product already
+    /// matched (<see cref="CountyProduct.CdmsProductId"/>) is looked up directly. Otherwise CDMS is
+    /// searched by name: one US product with the same EPA Reg. No. is taken as the match, and
+    /// anything less certain is returned as candidates for staff to choose from.
+    /// If CDMS cannot be reached, the saved list (if any) is returned together with the error.
+    /// </summary>
+    public async Task<SdsLookup> FindSdsAsync(CountyProduct product, CancellationToken ct = default)
     {
-        TaskCanceledException => "EPA's server took too long to answer.",
-        HttpRequestException { StatusCode: { } code } => $"EPA's server answered with an error ({(int)code}).",
-        HttpRequestException => "Could not reach EPA. Check the internet connection.",
-        JsonException => "EPA's answer could not be read.",
+        try
+        {
+            CdmsProduct? match = null;
+            if (product.CdmsProductId is null)
+            {
+                IReadOnlyList<CdmsProduct> hits = [];
+                foreach (var term in CdmsClient.SearchTerms(product))
+                {
+                    hits = await _cdms.SearchAsync(term, ct).ConfigureAwait(false);
+                    if (hits.Count > 0)
+                        break;
+                }
+                match = CdmsClient.MatchByRegNo(hits, product.HasRegNo ? product.EpaRegNo : null);
+                if (match is null)
+                    return new SdsLookup(null, [], hits, false, DateTimeOffset.Now, null);
+            }
+
+            var id = match?.Id ?? product.CdmsProductId!.Value;
+            var file = SdsListFile(id);
+            // The document list does not repeat the product's name, so keep the one saved when it was matched.
+            match ??= (await ReadSavedSdsAsync(file).ConfigureAwait(false))?.Product;
+            var documents = await _cdms.GetDocumentsAsync(id, ct).ConfigureAwait(false);
+            var cached = new CachedSds
+            {
+                FetchedAt = DateTimeOffset.Now,
+                Product = match ?? new CdmsProduct { Id = id },
+                Sheets = [.. documents.Where(d => d.IsSafetyDataSheet)],
+            };
+            await WriteSdsAsync(file, cached, ct).ConfigureAwait(false);
+            return new SdsLookup(cached.Product, cached.Sheets, [], false, cached.FetchedAt, null);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or IOException && !ct.IsCancellationRequested)
+        {
+            var saved = product.CdmsProductId is { } id ? await ReadSavedSdsAsync(SdsListFile(id)).ConfigureAwait(false) : null;
+            return new SdsLookup(saved?.Product, saved?.Sheets ?? [], [], saved is not null, saved?.FetchedAt, Describe(ex, Cdms));
+        }
+    }
+
+    /// <summary>The Safety Data Sheet list saved on this device for a matched product, without contacting CDMS.</summary>
+    public async Task<SdsLookup?> GetSavedSdsAsync(CountyProduct product)
+    {
+        if (product.CdmsProductId is not { } id || await ReadSavedSdsAsync(SdsListFile(id)).ConfigureAwait(false) is not { } saved)
+            return null;
+        return new SdsLookup(saved.Product, saved.Sheets, [], true, saved.FetchedAt, null);
+    }
+
+    /// <summary>
+    /// Saves the name and maker of the CDMS product staff chose, so they can be shown again
+    /// when CDMS cannot be reached.
+    /// </summary>
+    public async Task RememberSdsMatchAsync(CdmsProduct match, CancellationToken ct = default)
+    {
+        var file = SdsListFile(match.Id);
+        var cached = await ReadSavedSdsAsync(file).ConfigureAwait(false) ?? new CachedSds { FetchedAt = DateTimeOffset.Now };
+        cached.Product = match;
+        await WriteSdsAsync(file, cached, ct).ConfigureAwait(false);
+    }
+
+    private string SdsListFile(int cdmsProductId) => Path.Combine(CdmsDir, cdmsProductId + ".json");
+
+    private static async Task WriteSdsAsync(string file, CachedSds cached, CancellationToken ct)
+    {
+        var temp = file + ".tmp";
+        await using (var stream = File.Create(temp))
+            await JsonSerializer.SerializeAsync(stream, cached, CoreJson.Default.CachedSds, ct).ConfigureAwait(false);
+        File.Move(temp, file, overwrite: true);
+    }
+
+    private static async Task<CachedSds?> ReadSavedSdsAsync(string file)
+    {
+        if (!File.Exists(file))
+            return null;
+        try
+        {
+            await using var stream = File.OpenRead(file);
+            return await JsonSerializer.DeserializeAsync(stream, CoreJson.Default.CachedSds).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is JsonException or IOException)
+        {
+            return null;
+        }
+    }
+
+    public string SdsPath(string fileName)
+    {
+        if (!CdmsClient.IsValidFileName(fileName))
+            throw new ArgumentException("Not a CDMS document file name.", nameof(fileName));
+        return Path.Combine(SdsDir, fileName);
+    }
+
+    public bool IsSdsSaved(string fileName) => CdmsClient.IsValidFileName(fileName) && File.Exists(SdsPath(fileName));
+
+    /// <summary>Returns the path of the saved Safety Data Sheet, downloading it from CDMS first if needed.</summary>
+    public Task<string> EnsureSdsAsync(string fileName, CancellationToken ct = default) =>
+        EnsurePdfAsync(SdsPath(fileName), CdmsClient.DocumentUri(fileName), "CDMS returned something that is not a PDF for this Safety Data Sheet.", ct);
+
+    /// <summary>A plain-language reason for a failed request to <paramref name="source"/> (EPA or CDMS).</summary>
+    public static string Describe(Exception ex, string source = "EPA") => ex switch
+    {
+        TaskCanceledException => $"{source}'s server took too long to answer.",
+        HttpRequestException { StatusCode: { } code } => $"{source}'s server answered with an error ({(int)code}).",
+        HttpRequestException => $"Could not reach {source}. Check the internet connection.",
+        JsonException => $"{source}'s answer could not be read.",
         _ => ex.Message,
     };
 }
