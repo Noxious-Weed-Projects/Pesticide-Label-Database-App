@@ -29,7 +29,12 @@ The app also shows each product's Safety Data Sheet and the manufacturer's label
 - EPA Reg. Nos. from the county list for Alligare 2,4-D (81927-38), AquaNeat (228-365), Drexel Diuron 4L (19713-36), Loveland MAD DOG (34704-889) and Loveland Rifle (34704-861).
 - A device that already has an earlier version gets the new product and these numbers when it is updated. Numbers staff entered or confirmed on the device are kept.
 
-The county list shows 19713-36 beside Diablo. EPA registers that number as Drexel Diuron 4L, the next product on the list, so the app puts it there and Diablo keeps 228-379. Check both against the containers.
+The county list shows 19713-36 beside Diablo. The department confirmed it is Drexel Diuron 4L's number, which is also how EPA registers it, so the app puts it there and Diablo keeps 228-379.
+
+## What v0.2.2 changes
+
+- EPA Reg. No. from the county list for Cornbelt 4 Lb. Amine (11773-2). Every EPA-registered product on the list now has a number.
+- A device that already has an earlier version gets this number when it is updated, unless staff already entered one there.
 
 ## Labels and Safety Data Sheets from CDMS
 
@@ -61,9 +66,8 @@ The county list gives an EPA number for a few products. The other EPA Reg. Nos. 
 
 | State in the app | Products |
 |---|---|
-| Number from the county list, unconfirmed (5) | Alligare 2,4-D, AquaNeat, Drexel Diuron 4L, Loveland MAD DOG, Loveland Rifle |
+| Number from the county list, unconfirmed (6) | Alligare 2,4-D, AquaNeat, Drexel Diuron 4L, Loveland MAD DOG, Loveland Rifle, Cornbelt 4 Lb. Amine |
 | Number matched by name, unconfirmed (19) | De-Amine 4, Sharda Picloram 24% SL, Alligare 2,4-D LV 6, Diablo, Glyphosate 4 Plus, GLY Star Plus, High Noon, Imitator Aquatic, Makaze, Milestone, Mojave 70 EG, Imazuron, MSM 60, Panoramic 2SL, Picloram 22K, Triumph 22K, Tordon 22K, Piper EZ, Outrider |
-| Number needed from the container (1) | Cornbelt 4 Lb. Amine |
 | No EPA label found (9) | Bubble Blaster, Hot Mes, Liberate, Photo Blue Dye, Blue Wing, Surf-AC 910, Choice Weathermaster, LI 700, Reign |
 
 Edits are stored on each device separately; the app does not sync between devices yet.
@@ -81,12 +85,12 @@ Edits are stored on each device separately; the app does not sync between device
 
 Packages are written to `artifacts/` (not kept in git).
 
-**Windows** — `RushCountyPesticideLabels-0.2.1-win-x64.msix` is signed with a self-signed certificate, so each PC must trust that certificate once before the package will install:
+**Windows** — `RushCountyPesticideLabels-0.2.2-win-x64.msix` is signed with a self-signed certificate, so each PC must trust that certificate once before the package will install:
 
 1. As an administrator, import `RushCountyPesticideLabels.cer` into **Local Machine → Trusted People**.
 2. Double-click the `.msix` and choose **Install**. On a PC that already has an earlier version, this updates it and keeps the saved labels and edits.
 
-**Android** — copy `RushCountyPesticideLabels-0.2.1-android.apk` to the tablet or phone, open it, and allow installing from that source. On a device that already has an earlier version, this updates it and keeps the saved labels and edits. It supports Android 7 and later on 64-bit ARM and x86 tablets.
+**Android** — copy `RushCountyPesticideLabels-0.2.2-android.apk` to the tablet or phone, open it, and allow installing from that source. On a device that already has an earlier version, this updates it and keeps the saved labels and edits. It supports Android 7 and later on 64-bit ARM and x86 tablets.
 
 ## Build
 

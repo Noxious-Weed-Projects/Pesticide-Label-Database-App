@@ -65,7 +65,7 @@ public sealed class CoreTests : IDisposable
     [InlineData("Drexel Diuron 4L", "19713-36")]
     [InlineData("Loveland MAD DOG", "34704-889")]
     [InlineData("Loveland Rifle", "34704-861")]
-    [InlineData("Cornbelt 4 Lb. Amine", null)]
+    [InlineData("Cornbelt 4 Lb. Amine", "11773-2")]
     public void Seed_list_has_the_numbers_from_the_county_list(string name, string? regNo) =>
         Assert.Equal(regNo, SeedProducts.Create().Single(p => p.Name == name).EpaRegNo);
 
@@ -85,13 +85,29 @@ public sealed class CoreTests : IDisposable
         var loaded = await _library.LoadProductsAsync();
 
         Assert.Equal(34, loaded.Count);
-        Assert.Contains(loaded, p => p.Name == "Cornbelt 4 Lb. Amine");
+        Assert.Equal("11773-2", loaded.Single(p => p.Name == "Cornbelt 4 Lb. Amine").EpaRegNo);
         Assert.Equal("81927-38", loaded.Single(p => p.Name == "Alligare 2,4-D").EpaRegNo);
         Assert.Equal("19713-36", loaded.Single(p => p.Name == "Drexel Diuron 4L").EpaRegNo);
         Assert.Equal("34704-861", loaded.Single(p => p.Name == "Loveland Rifle").EpaRegNo);
         Assert.Equal("34704-890", loaded.Single(p => p.Name == "Loveland MAD DOG").EpaRegNo);
         Assert.True(loaded.Single(p => p.Name == "Corteva Milestone").Confirmed);
         Assert.False(SeedProducts.ApplyListUpdates(loaded));
+    }
+
+    [Fact]
+    public async Task A_list_saved_by_v0_2_1_gains_the_Cornbelt_number()
+    {
+        // v0.2.1 had Cornbelt on the list with no number.
+        var old = SeedProducts.Create();
+        old.Single(p => p.Name == "Cornbelt 4 Lb. Amine").EpaRegNo = null;
+        await _library.SaveProductsAsync(old);
+
+        var loaded = await _library.LoadProductsAsync();
+
+        Assert.Equal(34, loaded.Count);
+        var cornbelt = loaded.Single(p => p.Name == "Cornbelt 4 Lb. Amine");
+        Assert.Equal("11773-2", cornbelt.EpaRegNo);
+        Assert.False(cornbelt.Confirmed);
     }
 
     [Theory]

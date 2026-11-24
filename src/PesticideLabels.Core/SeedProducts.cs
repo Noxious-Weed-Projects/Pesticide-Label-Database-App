@@ -20,8 +20,8 @@ public static class SeedProducts
         Ppls("AquaNeat", "228-365"),
         NoLabel("Bubble Blaster"),
         Ppls("Diablo", "228-379"),
-        // The spreadsheet has 19713-36 on the Diablo row above; EPA registers that number as
-        // Drexel Diuron 4L, so it is entered here and Diablo keeps Nufarm's 228-379.
+        // The spreadsheet has 19713-36 on the Diablo row above. The department confirmed it is
+        // Diuron 4L's number (EPA registers it as Drexel Diuron 4L); Diablo keeps Nufarm's 228-379.
         Ppls("Drexel Diuron 4L", "19713-36"),
         Ppls("Alligare Glyphosate 4 Plus", "81927-9"),
         Ppls("GLY Star Plus", "42750-61"),
@@ -48,12 +48,15 @@ public static class SeedProducts
         NoLabel("Loveland Choice Weathermaster"),
         NoLabel("Loveland LI 700"),
         NoLabel("Loveland Reign"),
-        Ppls("Cornbelt 4 Lb. Amine", null, "CORNBELT"),
+        Ppls("Cornbelt 4 Lb. Amine", "11773-2"),
     ];
 
-    /// <summary>Products that had no built-in EPA number before the county list supplied one in v0.2.1.</summary>
+    /// <summary>
+    /// Products that had no built-in EPA number until the county list supplied one
+    /// (v0.2.1, and Cornbelt in v0.2.2).
+    /// </summary>
     private static readonly string[] NumbersAddedToList =
-        ["alligare-2-4-d", "aquaneat", "drexel-diuron-4l", "loveland-mad-dog", "loveland-rifle"];
+        ["alligare-2-4-d", "aquaneat", "drexel-diuron-4l", "loveland-mad-dog", "loveland-rifle", "cornbelt-4-lb--amine"];
 
     /// <summary>
     /// Brings a list saved by an earlier version up to the current county list: adds products
