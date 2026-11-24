@@ -31,6 +31,9 @@ public sealed class CountyProduct
 
     public string? Note { get; set; }
 
+    /// <summary>The product in the CDMS Label Database whose Safety Data Sheets are shown, once matched.</summary>
+    public int? CdmsProductId { get; set; }
+
     [JsonIgnore]
     public bool HasRegNo => Source == LabelSource.Ppls && !string.IsNullOrWhiteSpace(EpaRegNo);
 }
@@ -122,6 +125,14 @@ public sealed class PplsLabelFile
     }
 }
 
+/// <summary>A CDMS product and its Safety Data Sheets as saved on the device.</summary>
+public sealed class CachedSds
+{
+    public DateTimeOffset FetchedAt { get; set; }
+    public CdmsProduct? Product { get; set; }
+    public List<CdmsDocument> Sheets { get; set; } = [];
+}
+
 /// <summary>PPLS details as saved on the device, with the time they were fetched.</summary>
 public sealed class CachedProduct
 {
@@ -133,5 +144,8 @@ public sealed class CachedProduct
 [JsonSerializable(typeof(PplsItems<PplsSearchHit>))]
 [JsonSerializable(typeof(PplsItems<PplsProduct>))]
 [JsonSerializable(typeof(CachedProduct))]
+[JsonSerializable(typeof(CachedSds))]
+[JsonSerializable(typeof(CdmsList<CdmsProduct>))]
+[JsonSerializable(typeof(CdmsList<CdmsDocument>))]
 [JsonSerializable(typeof(List<CountyProduct>))]
 public sealed partial class CoreJson : JsonSerializerContext;

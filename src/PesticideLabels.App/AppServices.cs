@@ -8,7 +8,7 @@ public static class AppServices
     private static readonly Lazy<HttpClient> LazyHttp = new(() =>
     {
         var http = new HttpClient { Timeout = TimeSpan.FromSeconds(45) };
-        http.DefaultRequestHeaders.UserAgent.ParseAdd("RushCountyPesticideLabels/0.1");
+        http.DefaultRequestHeaders.UserAgent.ParseAdd("RushCountyPesticideLabels/0.1.1");
         return http;
     });
 
@@ -19,6 +19,17 @@ public static class AppServices
 
     public static PplsClient Ppls => LazyPpls.Value;
     public static LabelLibrary Library => LazyLibrary.Value;
+}
+
+public static class Features
+{
+    /// <summary>Safety Data Sheets from CDMS are in the Windows version only for now.</summary>
+    public static readonly bool SafetyDataSheets =
+#if WINDOWS
+        true;
+#else
+        false;
+#endif
 }
 
 public static class Palette
